@@ -198,4 +198,506 @@ Flickable {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.bottom: parent.bottom
-      anchors.bottom
+      anchors.bottomMargin: Style.space(6)
+      height: Style.space(28)
+      radius: Style.space(8)
+      color: "transparent"
+      border.color: pane.fg
+      border.width: 1
+      opacity: entry.activeFocus ? 1.0 : 0.45
+
+      TextInput {
+        id: entry
+        anchors.fill: parent
+        anchors.leftMargin: Style.space(10)
+        anchors.rightMargin: Style.space(10)
+        verticalAlignment: TextInput.AlignVCenter
+        text: field.value
+        color: pane.fg
+        font.family: pane.fontFamily
+        font.pixelSize: pane.fs(Style.font.caption)
+        selectByMouse: true
+        clip: true
+
+        // Commit on Enter or on losing focus, never per keystroke — each commit
+        // rewrites the config file and re-indexes.
+        onEditingFinished: if (text !== field.value) field.updated(text)
+        Keys.onPressed: function (event) {
+          if (event.key === Qt.Key_Escape) {
+            entry.text = field.value
+            pane.forceActiveFocus()
+            event.accepted = true
+          }
+        }
+
+        Text {
+          anchors.fill: parent
+          visible: entry.text.length === 0
+          text: field.placeholder
+          color: pane.fg
+          opacity: 0.4
+          font: entry.font
+          verticalAlignment: Text.AlignVCenter
+        }
+      }
+    }
+  }
+
+  component Stepper: Item {
+    id: stepper
+    property string label
+    property int value
+    property int minimum: 0
+    property int maximum: 9999
+    property int step: 1
+    signal updated(int value)
+
+    width: parent ? parent.width : 0
+    height: Style.space(34)
+
+    function clamp(next) {
+      return Math.max(stepper.minimum, Math.min(stepper.maximum, next))
+    }
+
+    Text {
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      text: stepper.label
+      color: pane.fg
+      font.family: pane.fontFamily
+      font.pixelSize: pane.fs(Style.font.body)
+    }
+
+    Row {
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(4)
+
+      StepButton {
+        glyph: "−"
+        onActivated: stepper.updated(stepper.clamp(stepper.value - stepper.step))
+      }
+      Text {
+        width: Style.space(46)
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalAlignment: Text.AlignHCenter
+        text: stepper.value
+        color: pane.fg
+        font.family: pane.fontFamily
+        font.pixelSize: pane.fs(Style.font.body)
+      }
+      StepButton {
+        glyph: "+"
+        onActivated: stepper.updated(stepper.clamp(stepper.value + stepper.step))
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ content
+
+  Column {
+    id: layout
+    width: pane.width - Style.space(40)
+    x: Style.space(20)
+    spacing: Style.space(2)
+
+    SectionTitle { text: "HOTKEY" }
+
+    Item {
+      width: parent.width
+      height: Style.space(40)
+
+      Text {
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        text: pane.capturing ? "Press the new combination…" : "Opens the launcher"
+        color: pane.fg
+        opacity: pane.capturing ? 1.0 : 0.5
+        font.family: pane.fontFamily
+        font.pixelSize: pane.fs(Style.font.body)
+      }
+
+      Rectangle {
+        id: capture
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        width: Math.max(Style.space(150), keyLabel.implicitWidth + Style.space(24))
+        height: Style.space(30)
+        radius: Style.space(8)
+        color: pane.capturing ? pane.accentColor : "transparent"
+        border.color: pane.fg
+        border.width: 1
+        opacity: pane.capturing ? 1.0 : 0.7
+
+        Text {
+          id: keyLabel
+          anchors.centerIn: parent
+          text: host.config.hotkey
+          color: pane.fg
+          font.family: pane.fontFamily
+          font.pixelSize: pane.fs(Style.font.caption)
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          onClicked: {
+            pane.capturing = true
+            capture.forceActiveFocus()
+          }
+        }
+
+        focus: pane.capturing
+        Keys.onPressed: function (event) {
+          if (!pane.capturing) return
+          if (event.key === Qt.Key_Escape) {
+            pane.capturing = false
+            event.accepted = true
+            return
+          }
+          var combo = pane.describe(event)
+          // Ignore bare modifier presses; wait for a real key.
+          if (combo === "") { event.accepted = true; return }
+          pane.capturing = false
+          pane.commitTop("hotkey", combo)
+          event.accepted = true
+        }
+      }
+    }
+
+    Text {
+      width: parent.width
+      wrapMode: Text.WordWrap
+      text: "Wayland has no client-side global hotkey, so this writes the binding into ~/.config/hypr/omarchycast.lua and reloads Hyprland."
+      color: pane.fg
+      opacity: 0.45
+      font.family: pane.fontFamily
+      font.pixelSize: pane.fs(Style.font.caption)
+    }
+
+    SectionTitle { text: "SOURCES" }
+
+    Toggle {
+      label: "Applications"; hint: "Search and launch desktop entries"
+      checked: host.config.providers.apps
+      onToggled: pane.commit("providers", "apps", value)
+    }
+    Stepper {
+      label: "Application results"; value: host.config.providers.appsLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "appsLimit", value)
+    }
+    Toggle {
+      label: "Calculator"; hint: "Arithmetic and unit conversion"
+      checked: host.config.providers.calculator
+      onToggled: pane.commit("providers", "calculator", value)
+    }
+    Toggle {
+      label: "Dates"; hint: "\"days until october 8\" and similar"
+      checked: host.config.providers.dates
+      onToggled: pane.commit("providers", "dates", value)
+    }
+    Toggle {
+      label: "Notes"; hint: "Search markdown notes and open them in shadow-notes"
+      checked: host.config.providers.notes
+      onToggled: pane.commit("providers", "notes", value)
+    }
+    Stepper {
+      label: "Note results"; value: host.config.providers.notesLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "notesLimit", value)
+    }
+    Toggle {
+      label: "Omarchy"; hint: "Menu entries, omarchy commands, and themes"
+      checked: host.config.providers.omarchy
+      onToggled: pane.commit("providers", "omarchy", value)
+    }
+    Stepper {
+      label: "Omarchy results"; value: host.config.providers.omarchyLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "omarchyLimit", value)
+    }
+    Toggle {
+      label: "Plugins"; hint: "Commands from ~/.config/omarchycast/plugins"
+      checked: host.config.providers.plugins
+      onToggled: pane.commit("providers", "plugins", value)
+    }
+    Stepper {
+      label: "Plugin results"; value: host.config.providers.pluginsLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "pluginsLimit", value)
+    }
+    Toggle {
+      label: "Web Search"; hint: "Fallback: open a search engine in your browser"
+      checked: host.config.providers.websearch
+      onToggled: pane.commit("providers", "websearch", value)
+    }
+    Stepper {
+      label: "Web search results"; value: host.config.providers.websearchLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "websearchLimit", value)
+    }
+    PathField {
+      label: "Default search URL"
+      placeholder: "https://duckduckgo.com/?q={query}"
+      value: host.config.providers.websearchUrl
+      onUpdated: pane.commit("providers", "websearchUrl", value)
+    }
+    Text {
+      width: parent.width
+      wrapMode: Text.WordWrap
+      text: "Must contain {query} as a placeholder. Example: https://www.google.com/search?q={query}"
+      color: pane.fg
+      opacity: 0.4
+      font.family: pane.fontFamily
+      font.pixelSize: pane.fs(Style.font.caption)
+    }
+
+    SectionTitle { text: "SEARCH PREFIXES" }
+    Text {
+      width: parent.width
+      wrapMode: Text.WordWrap
+      text: "Type a prefix followed by a space to route to a specific engine. E.g. \"x rust\" searches X, \"g hello\" searches Google."
+      color: pane.fg
+      opacity: 0.4
+      font.family: pane.fontFamily
+      font.pixelSize: pane.fs(Style.font.caption)
+    }
+
+    Repeater {
+      id: prefixRepeater
+      model: host.config.providers.websearchPrefixes || []
+
+      delegate: Item {
+        width: parent.width
+        height: Style.space(72)
+
+        property int index: modelData ? modelData.index : index
+        property string prefix: modelData ? modelData.prefix : ""
+        property string name: modelData ? modelData.name : ""
+        property string url: modelData ? modelData.url : ""
+
+        // Prefix field
+        Row {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          spacing: Style.space(6)
+
+          Text {
+            text: "Prefix"
+            color: pane.fg
+            opacity: 0.6
+            font.family: pane.fontFamily
+            font.pixelSize: pane.fs(Style.font.caption)
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Rectangle {
+            width: Style.space(48)
+            height: Style.space(24)
+            radius: Style.space(6)
+            color: "transparent"
+            border.color: pane.fg
+            border.width: 1
+            opacity: 0.5
+
+            TextInput {
+              id: prefixInput
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              verticalAlignment: TextInput.AlignVCenter
+              text: prefix
+              color: pane.fg
+              font.family: pane.fontFamily
+              font.pixelSize: pane.fs(Style.font.caption)
+              maximumLength: 3
+              selectByMouse: true
+              onEditingFinished: {
+                var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
+                list[index].prefix = text.trim().toLowerCase()
+                pane.commitPrefixes(list)
+              }
+            }
+          }
+        }
+
+        // Name field
+        Row {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.topMargin: Style.space(30)
+          spacing: Style.space(6)
+
+          Text {
+            text: "Name"
+            color: pane.fg
+            opacity: 0.6
+            font.family: pane.fontFamily
+            font.pixelSize: pane.fs(Style.font.caption)
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Rectangle {
+            width: Style.space(80)
+            height: Style.space(24)
+            radius: Style.space(6)
+            color: "transparent"
+            border.color: pane.fg
+            border.width: 1
+            opacity: 0.5
+
+            TextInput {
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              verticalAlignment: TextInput.AlignVCenter
+              text: name
+              color: pane.fg
+              font.family: pane.fontFamily
+              font.pixelSize: pane.fs(Style.font.caption)
+              maximumLength: 30
+              selectByMouse: true
+              onEditingFinished: {
+                var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
+                list[index].name = text.trim()
+                pane.commitPrefixes(list)
+              }
+            }
+          }
+        }
+
+        // URL field
+        Row {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.topMargin: Style.space(56)
+          spacing: Style.space(6)
+
+          Text {
+            text: "URL"
+            color: pane.fg
+            opacity: 0.6
+            font.family: pane.fontFamily
+            font.pixelSize: pane.fs(Style.font.caption)
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Rectangle {
+            width: parent.width - Style.space(120)
+            height: Style.space(24)
+            radius: Style.space(6)
+            color: "transparent"
+            border.color: pane.fg
+            border.width: 1
+            opacity: 0.5
+
+            TextInput {
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(6)
+              anchors.rightMargin: Style.space(6)
+              verticalAlignment: TextInput.AlignVCenter
+              text: url
+              color: pane.fg
+              font.family: pane.fontFamily
+              font.pixelSize: pane.fs(Style.font.caption)
+              selectByMouse: true
+              clip: true
+              onEditingFinished: {
+                var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
+                list[index].url = text.trim()
+                pane.commitPrefixes(list)
+              }
+            }
+          }
+        }
+
+        // Remove button
+        StepButton {
+          glyph: "×"
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.topMargin: Style.space(4)
+          onActivated: {
+            var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
+            list.splice(index, 1)
+            pane.commitPrefixes(list)
+          }
+        }
+      }
+    }
+
+    // Add prefix button
+    StepButton {
+      glyph: "+"
+      width: Style.space(80)
+      height: Style.space(28)
+      onActivated: {
+        var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
+        list.push({ prefix: "", name: "", url: "https://duckduckgo.com/?q={query}" })
+        pane.commitPrefixes(list)
+      }
+    }
+
+    PathField {
+      label: "Notes folder"
+      placeholder: "~/Notes"
+      value: host.config.providers.notesDirectory
+      onUpdated: pane.commit("providers", "notesDirectory", value)
+    }
+
+    SectionTitle { text: "APPEARANCE" }
+
+    Stepper {
+      label: "Width"; value: host.config.appearance.width
+      minimum: 420; maximum: 1200; step: 20
+      onUpdated: pane.commit("appearance", "width", value)
+    }
+    Stepper {
+      label: "Rows shown"; value: host.config.appearance.rowsVisible
+      minimum: 3; maximum: 16
+      onUpdated: pane.commit("appearance", "rowsVisible", value)
+    }
+    Stepper {
+      label: "Corner radius"; value: host.config.appearance.cornerRadius
+      minimum: 0; maximum: 32; step: 2
+      onUpdated: pane.commit("appearance", "cornerRadius", value)
+    }
+    Toggle {
+      label: "Compact density"; hint: "Tighter rows and paddings"
+      checked: host.config.appearance.compact
+      onToggled: pane.commit("appearance", "compact", value)
+    }
+    Stepper {
+      label: "Font size %"; value: host.config.appearance.fontScale
+      minimum: 70; maximum: 160; step: 10
+      onUpdated: pane.commit("appearance", "fontScale", value)
+    }
+    Toggle {
+      label: "Follow the Omarchy theme"; hint: "Off uses a fixed dark palette"
+      checked: host.config.appearance.followTheme
+      onToggled: pane.commit("appearance", "followTheme", value)
+    }
+
+    SectionTitle { text: "BEHAVIOUR" }
+
+    Toggle {
+      label: "Dismiss when clicking away"
+      checked: host.config.behaviour.hideOnBlur
+      onToggled: pane.commit("behaviour", "hideOnBlur", value)
+    }
+    Toggle {
+      label: "Escape clears before dismissing"
+      checked: host.config.behaviour.escClearsFirst
+      onToggled: pane.commit("behaviour", "escClearsFirst", value)
+    }
+    Toggle {
+      label: "Show frequent apps when empty"
+      checked: host.config.behaviour.showRecentWhenEmpty
+      onToggled: pane.commit("behaviour", "showRecentWhenEmpty", value)
+    }
+  }
+
+  Keys.onPressed: function (event) {
+    if (event.key === Qt.Key_Escape && !pane.capturing) {
+      host.goBack()
+      event.accepted = true
+    }
+  }
+}
