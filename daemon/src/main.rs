@@ -102,6 +102,7 @@ fn run() {
     let plugins = PluginsProvider::new();
     let websearch = WebsearchProvider::new();
     websearch.set_url(config.providers.websearch_url.clone());
+    websearch.set_prefixes(config.providers.websearch_prefixes.clone());
     let state = Arc::new(State {
         registry: Registry::new(vec![
             CalcProvider::new(),
@@ -186,8 +187,9 @@ fn dispatch(state: &State, request: Request) -> Response {
             }
             // A moved notes directory has to be re-indexed before the next query.
             state.notes.set_directory(config.notes_directory());
-            // A changed search URL takes effect immediately.
+            // A changed search URL or prefix list takes effect immediately.
             state.websearch.set_url(config.providers.websearch_url.clone());
+            state.websearch.set_prefixes(config.providers.websearch_prefixes.clone());
             if rebind {
                 if let Err(e) = hypr::install_hotkey(&config.hotkey) {
                     return Response::error(format!("settings saved, but the hotkey failed: {e}"));

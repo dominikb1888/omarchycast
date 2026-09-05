@@ -15,6 +15,44 @@ fn config_path() -> PathBuf {
         .join("omarchycast/config.json")
 }
 
+/// A single prefix-to-engine mapping. Typing `<prefix> <term>` routes the
+/// search to the engine described by `url`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchPrefix {
+    /// 1–3 lowercase alphanumeric characters, e.g. "x", "g".
+    pub prefix: String,
+    /// Human-readable engine name shown in the result row, e.g. "X", "Google".
+    pub name: String,
+    /// URL template; must contain the literal `{query}` placeholder.
+    pub url: String,
+}
+
+impl Default for SearchPrefix {
+    fn default() -> Self {
+        SearchPrefix {
+            prefix: String::new(),
+            name: String::new(),
+            url: DEFAULT_SEARCH_URL.to_string(),
+        }
+    }
+}
+
+fn default_prefixes() -> Vec<SearchPrefix> {
+    vec![
+        SearchPrefix {
+            prefix: "x".into(),
+            name: "X".into(),
+            url: "https://x.com/search?q={query}".into(),
+        },
+        SearchPrefix {
+            prefix: "g".into(),
+            name: "Google".into(),
+            url: "https://www.google.com/search?q={query}".into(),
+        },
+    ]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Providers {
@@ -34,9 +72,10 @@ pub struct Providers {
     pub websearch_limit: usize,
     /// Where markdown notes live. Empty means the default, `~/Notes`.
     pub notes_directory: String,
-    /// Search engine URL template. Must contain the literal `{query}` placeholder
-    /// which is replaced with the percent-encoded search term at activation time.
+    /// Default search engine URL template (used when no prefix matches).
     pub websearch_url: String,
+    /// Prefix-to-engine mappings. Typing `<prefix> <term>` routes to that engine.
+    pub websearch_prefixes: Vec<SearchPrefix>,
 }
 
 impl Default for Providers {
@@ -56,6 +95,7 @@ impl Default for Providers {
             websearch_limit: 1,
             notes_directory: String::new(),
             websearch_url: DEFAULT_SEARCH_URL.to_string(),
+            websearch_prefixes: default_prefixes(),
         }
     }
 }
@@ -173,6 +213,7 @@ impl Config {
         if !valid_search_url(&self.providers.websearch_url) {
             self.providers.websearch_url = DEFAULT_SEARCH_URL.to_string();
         }
+        sanitise_prefixes(&mut self.providers.websearch_prefixes);
         self.appearance.width = self.appearance.width.clamp(320, 1600);
         self.appearance.rows_visible = self.appearance.rows_visible.clamp(3, 20);
         self.appearance.corner_radius = self.appearance.corner_radius.min(48);
@@ -212,6 +253,38 @@ fn valid_search_url(url: &str) -> bool {
     trimmed.starts_with("http://") || trimmed.starts_with("https://")
         && trimmed.contains("{query}")
         && trimmed.chars().count() <= 512
+}
+
+/// Validates and clamps the prefix list in place.
+fn sanitise_prefixes(prefixes: &mut Vec<SearchPrefix>) {
+    const MAX_PREFIXES: usize = 10;
+    const MAX_PREFIX_LEN: usize = 3;
+    const MAX_NAME_LEN: usize = 30;
+
+    prefixes.truncate(MAX_PREFIXES);
+
+    // Remove invalid entries and deduplicate by prefix.
+    let mut seen = std::collections::HashSet::new();
+    prefixes.retain(|p| {
+        let prefix = p.prefix.trim().to_ascii_lowercase();
+        let valid_prefix = !prefix.is_empty()
+            && prefix.chars().count() <= MAX_PREFIX_LEN
+            && prefix.chars().all(|c| c.is_ascii_alphanumeric());
+        let valid_name = !p.name.trim().is_empty() && p.name.chars().count() <= MAX_NAME_LEN;
+        let valid_url = valid_search_url(&p.url);
+        if valid_prefix && valid_name && valid_url && seen.insert(prefix.clone()) {
+            p.prefix = prefix;
+            p.name = p.name.trim().to_string();
+            p.url = p.url.trim().to_string();
+            true
+        } else {
+            false
+        }
+    });
+
+    if prefixes.is_empty() {
+        *prefixes = default_prefixes();
+    }
 }
 
 /// Expands a leading `~` so the setting can be typed the way people write paths.
@@ -262,5 +335,59 @@ mod tests {
         c.providers.websearch_url = "https://example.com/search?q={query}".into();
         c.sanitise();
         assert_eq!(c.providers.websearch_url, "https://example.com/search?q={query}");
+    }
+
+    #[test]
+    fn sanitise_removes_invalid_prefixes() {
+        let mut c = Config::default();
+        c.providers.websearch_prefixes.push(SearchPrefix {
+            prefix: "waytoolong".into(),
+            name: "Bad".into(),
+            url: "https://x.com/?q={query}".into(),
+        });
+        c.providers.websearch_prefixes.push(SearchPrefix {
+            prefix: "ok".into(),
+            name: "Good".into(),
+            url: "https://good.com/?q={query}".into(),
+        });
+        c.sanitise();
+        // "waytoolong" is > 3 chars, should be removed. "ok" is valid.
+        let prefixes: Vec<&str> = c.providers.websearch_prefixes.iter().map(|p| p.prefix.as_str()).collect();
+        assert!(prefixes.contains(&"ok"));
+        assert!(!prefixes.contains(&"waytoolong"));
+    }
+
+    #[test]
+    fn sanitise_deduplicates_prefixes() {
+        let mut c = Config::default();
+        c.providers.websearch_prefixes.push(SearchPrefix {
+            prefix: "x".into(),
+            name: "Duplicate".into(),
+            url: "https://dup.com/?q={query}".into(),
+        });
+        c.sanitise();
+        let x_count = c.providers.websearch_prefixes.iter().filter(|p| p.prefix == "x").count();
+        assert_eq!(x_count, 1);
+    }
+
+    #[test]
+    fn sanitise_resets_to_defaults_when_all_invalid() {
+        let mut c = Config::default();
+        c.providers.websearch_prefixes = vec![SearchPrefix {
+            prefix: "!!!".into(),
+            name: "Bad".into(),
+            url: "not-a-url".into(),
+        }];
+        c.sanitise();
+        assert!(!c.providers.websearch_prefixes.is_empty());
+        // Should have fallen back to defaults
+        assert!(c.providers.websearch_prefixes.iter().any(|p| p.prefix == "x"));
+    }
+
+    #[test]
+    fn default_prefixes_contain_x_and_g() {
+        let p = Providers::default();
+        assert!(p.websearch_prefixes.iter().any(|e| e.prefix == "x" && e.name == "X"));
+        assert!(p.websearch_prefixes.iter().any(|e| e.prefix == "g" && e.name == "Google"));
     }
 }
