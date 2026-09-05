@@ -419,6 +419,16 @@ Flickable {
       minimum: 1; maximum: 40
       onUpdated: pane.commit("providers", "pluginsLimit", value)
     }
+    Toggle {
+      label: "Web Search"; hint: "Fallback: open DuckDuckGo in your browser"
+      checked: host.config.providers.websearch
+      onToggled: pane.commit("providers", "websearch", value)
+    }
+    Stepper {
+      label: "Web search results"; value: host.config.providers.websearchLimit
+      minimum: 1; maximum: 40
+      onUpdated: pane.commit("providers", "websearchLimit", value)
+    }
     PathField {
       label: "Notes folder"
       placeholder: "~/Notes"

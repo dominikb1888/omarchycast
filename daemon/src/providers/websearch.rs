@@ -27,12 +27,14 @@ impl Provider for WebsearchProvider {
             return Vec::new();
         }
         vec![Item {
+            id: format!("web:{}", q.trimmed),
+            provider: "web",
+            kind: "Web",
             title: format!("Search web for: {}", q.trimmed),
             subtitle: Some("Open in browser".into()),
             glyph: Some("\u{1F310}".into()),
             accessory: None,
             icon: None,
-            id: format!("web:{}", q.trimmed),
         }]
     }
 
