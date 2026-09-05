@@ -23,12 +23,14 @@ pub struct Providers {
     pub notes: bool,
     pub plugins: bool,
     pub omarchy: bool,
+    pub websearch: bool,
     /// Cap per provider, applied before results are merged, so one chatty
     /// provider can't crowd out the others.
     pub apps_limit: usize,
     pub notes_limit: usize,
     pub plugins_limit: usize,
     pub omarchy_limit: usize,
+    pub websearch_limit: usize,
     /// Where markdown notes live. Empty means the default, `~/Notes`.
     pub notes_directory: String,
 }
@@ -42,10 +44,12 @@ impl Default for Providers {
             notes: true,
             plugins: true,
             omarchy: true,
+            websearch: true,
             apps_limit: 20,
             notes_limit: 8,
             plugins_limit: 10,
             omarchy_limit: 8,
+            websearch_limit: 1,
             notes_directory: String::new(),
         }
     }
@@ -157,6 +161,7 @@ impl Config {
         self.providers.notes_limit = self.providers.notes_limit.clamp(1, MAX_PROVIDER_RESULTS);
         self.providers.plugins_limit = self.providers.plugins_limit.clamp(1, MAX_PROVIDER_RESULTS);
         self.providers.omarchy_limit = self.providers.omarchy_limit.clamp(1, MAX_PROVIDER_RESULTS);
+        self.providers.websearch_limit = self.providers.websearch_limit.clamp(1, MAX_PROVIDER_RESULTS);
         if self.providers.notes_directory.chars().count() > MAX_PATH_SETTING_CHARS {
             self.providers.notes_directory = String::new();
         }
@@ -174,6 +179,7 @@ impl Config {
             "note" => self.providers.notes,
             "plug" => self.providers.plugins,
             "oma" => self.providers.omarchy,
+            "web" => self.providers.websearch,
             _ => true,
         }
     }
@@ -184,6 +190,7 @@ impl Config {
             "note" => self.providers.notes_limit.max(1),
             "plug" => self.providers.plugins_limit.max(1),
             "oma" => self.providers.omarchy_limit.max(1),
+            "web" => self.providers.websearch_limit.max(1),
             // Calculator and dates emit a single pinned row.
             _ => 4,
         }

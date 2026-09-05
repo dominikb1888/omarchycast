@@ -24,6 +24,7 @@ use crate::providers::date::DateProvider;
 use crate::providers::notes::NotesProvider;
 use crate::providers::omarchy::OmarchyProvider;
 use crate::providers::plugins::PluginsProvider;
+use crate::providers::websearch::WebsearchProvider;
 use notify_debouncer_full::new_debouncer;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -106,6 +107,7 @@ fn run() {
             apps.clone(),
             plugins.clone(),
             OmarchyProvider::new(),
+            WebsearchProvider::new(),
         ]),
         config: RwLock::new(config),
         notes: notes.clone(),
