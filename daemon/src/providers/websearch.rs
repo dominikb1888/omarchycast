@@ -15,7 +15,6 @@ use anyhow::Result;
 use std::sync::{Arc, RwLock};
 
 const DEFAULT_URL: &str = "https://duckduckgo.com/?q={query}";
-const DEFAULT_NAME: &str = "Web";
 
 pub struct WebsearchProvider {
     url: RwLock<String>,
@@ -93,6 +92,7 @@ impl Provider for WebsearchProvider {
                     glyph: Some("\u{1F310}".into()),
                     accessory: None,
                     icon: None,
+                    score: 0,
                 }];
             }
         }
@@ -107,6 +107,7 @@ impl Provider for WebsearchProvider {
             glyph: Some("\u{1F310}".into()),
             accessory: None,
             icon: None,
+            score: 0,
         }]
     }
 

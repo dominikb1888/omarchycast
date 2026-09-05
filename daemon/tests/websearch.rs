@@ -16,15 +16,16 @@ fn full_query_activate_url_construction() {
     let items = provider.query(&q);
     assert_eq!(items.len(), 1);
 
-    // The id encodes the query; activation strips the prefix and builds the URL.
-    let id = items[0].id.clone();
-    assert!(id.starts_with("web:"));
+    // The id encodes the engine and the query; activation strips the prefix and
+    // builds the URL.
+    let id = &items[0].id;
+    assert_eq!(id, "web:default:rust async traits");
 
     // We can't call activate (it would spawn xdg-open), but we can verify the
     // URL the provider *would* build by checking the template and the id.
     let template = provider.current_url();
-    let query_part = id.strip_prefix("web:").unwrap();
-    let expected = template.replace("{query}", &query_part.replace(' ', "+"));
+    let term = id.strip_prefix("web:default:").unwrap();
+    let expected = template.replace("{query}", &term.replace(' ', "+"));
     assert_eq!(expected, "https://www.google.com/search?q=rust+async+traits");
 }
 
@@ -76,8 +77,8 @@ fn different_queries_produce_different_ids() {
     let b = provider.query(&Query::new("beta"));
 
     assert_ne!(a[0].id, b[0].id);
-    assert_eq!(a[0].id, "web:alpha");
-    assert_eq!(b[0].id, "web:beta");
+    assert_eq!(a[0].id, "web:default:alpha");
+    assert_eq!(b[0].id, "web:default:beta");
 }
 
 #[test]

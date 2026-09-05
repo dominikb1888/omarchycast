@@ -265,7 +265,7 @@ fn sanitise_prefixes(prefixes: &mut Vec<SearchPrefix>) {
 
     // Remove invalid entries and deduplicate by prefix.
     let mut seen = std::collections::HashSet::new();
-    prefixes.retain(|p| {
+    prefixes.retain_mut(|p| {
         let prefix = p.prefix.trim().to_ascii_lowercase();
         let valid_prefix = !prefix.is_empty()
             && prefix.chars().count() <= MAX_PREFIX_LEN

@@ -3,34 +3,27 @@
 //! Headless by design: the UI is a Quickshell overlay that runs inside the shell
 //! process already on screen, so this process owns only the index, the matching
 //! and the actions. That keeps the resident cost to a few megabytes.
+//!
+//! This binary wires together the providers and IPC from the `omarchycastd`
+//! library crate; keep general logic there so it stays testable.
 
-mod clipboard;
-mod config;
-mod core;
-mod hypr;
-mod ipc;
-mod launch;
-mod limits;
-mod safeio;
-mod providers;
-
-use crate::config::Config;
-use crate::core::store::Store;
-use crate::core::{Action, Provider, Registry};
-use crate::ipc::{Request, Response};
-use crate::providers::apps::AppsProvider;
-use crate::providers::calc::CalcProvider;
-use crate::providers::date::DateProvider;
-use crate::providers::notes::NotesProvider;
-use crate::providers::omarchy::OmarchyProvider;
-use crate::providers::plugins::PluginsProvider;
-use crate::providers::websearch::WebsearchProvider;
+use omarchycastd::config::Config;
+use omarchycastd::core::store::Store;
+use omarchycastd::core::{Action, Provider, Registry};
+use omarchycastd::ipc::{Request, Response};
+use omarchycastd::providers::apps::AppsProvider;
+use omarchycastd::providers::calc::CalcProvider;
+use omarchycastd::providers::date::DateProvider;
+use omarchycastd::providers::notes::NotesProvider;
+use omarchycastd::providers::omarchy::OmarchyProvider;
+use omarchycastd::providers::plugins::PluginsProvider;
+use omarchycastd::providers::websearch::WebsearchProvider;
 use notify_debouncer_full::new_debouncer;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// Enough rows to scroll through without ever shipping a list nobody reads.
-const RESULT_LIMIT: usize = limits::MAX_RESULTS;
+const RESULT_LIMIT: usize = omarchycastd::limits::MAX_RESULTS;
 
 const USAGE: &str = "\
 omarchycastd — search daemon for the Omarchycast launcher overlay
@@ -55,7 +48,9 @@ fn main() {
         None => run(),
         Some("eval") => {
             let expr = std::env::args().skip(2).collect::<Vec<_>>().join(" ");
-            match providers::calc::eval_once(&expr).or_else(|| providers::date::eval_once(&expr)) {
+            match omarchycastd::providers::calc::eval_once(&expr)
+                .or_else(|| omarchycastd::providers::date::eval_once(&expr))
+            {
                 Some(result) => println!("{result}"),
                 None => {
                     eprintln!("omarchycastd: no result for {expr:?}");
@@ -65,7 +60,7 @@ fn main() {
         }
         Some("hotkey") => {
             let keys = std::env::args().skip(2).collect::<Vec<_>>().join(" ");
-            if let Err(e) = hypr::install_hotkey(&keys) {
+            if let Err(e) = omarchycastd::hypr::install_hotkey(&keys) {
                 eprintln!("omarchycastd: {e}");
                 std::process::exit(1);
             }
@@ -80,7 +75,7 @@ fn main() {
 }
 
 fn run() {
-    let listener = match ipc::listen() {
+    let listener = match omarchycastd::ipc::listen() {
         Ok(l) => l,
         Err(e) => {
             eprintln!("omarchycastd: {e}");
@@ -130,11 +125,11 @@ fn run() {
         let Ok(stream) = stream else { continue };
         // At capacity the connection is dropped immediately: the legitimate
         // consumer is one overlay, so the cap only ever bites a flood.
-        let Some(slot) = ipc::ClientSlot::claim(&clients) else { continue };
+        let Some(slot) = omarchycastd::ipc::ClientSlot::claim(&clients) else { continue };
         let state = state.clone();
         std::thread::spawn(move || {
             let _slot = slot;
-            ipc::serve_connection(stream, |request| dispatch(&state, request));
+            omarchycastd::ipc::serve_connection(stream, |request| dispatch(&state, request));
         });
     }
 }
@@ -146,7 +141,7 @@ fn dispatch(state: &State, request: Request) -> Response {
         Request::Query { text } => {
             // Bounded before any provider sees it: a pathological query must
             // cost at most a bounded match, never an unbounded allocation.
-            let text = limits::clamp_text(&text, limits::MAX_QUERY_CHARS);
+            let text = omarchycastd::limits::clamp_text(&text, omarchycastd::limits::MAX_QUERY_CHARS);
             let Ok(config) = state.config.read() else {
                 return Response::error("configuration is unavailable");
             };
@@ -155,7 +150,9 @@ fn dispatch(state: &State, request: Request) -> Response {
         }
 
         Request::Activate { id, action } => {
-            if id.len() > limits::MAX_ITEM_ID_BYTES || action.len() > limits::MAX_ACTION_BYTES {
+            if id.len() > omarchycastd::limits::MAX_ITEM_ID_BYTES
+                || action.len() > omarchycastd::limits::MAX_ACTION_BYTES
+            {
                 return Response::error("activation request out of bounds");
             }
             match state.registry.activate(&id, Action::parse(&action)) {
@@ -191,7 +188,7 @@ fn dispatch(state: &State, request: Request) -> Response {
             state.websearch.set_url(config.providers.websearch_url.clone());
             state.websearch.set_prefixes(config.providers.websearch_prefixes.clone());
             if rebind {
-                if let Err(e) = hypr::install_hotkey(&config.hotkey) {
+                if let Err(e) = omarchycastd::hypr::install_hotkey(&config.hotkey) {
                     return Response::error(format!("settings saved, but the hotkey failed: {e}"));
                 }
             }
@@ -271,7 +268,7 @@ fn watch_notes(notes: Arc<NotesProvider>) {
 /// Re-index when a plugin manifest is added, edited or removed.
 fn watch_plugins(plugins: Arc<PluginsProvider>) {
     std::thread::spawn(move || {
-        let directory = crate::providers::plugins::plugins_dir();
+        let directory = omarchycastd::providers::plugins::plugins_dir();
         let _ = std::fs::create_dir_all(&directory);
         let (tx, rx) = std::sync::mpsc::channel();
         let mut debouncer = match new_debouncer(Duration::from_millis(750), None, tx) {
@@ -294,7 +291,7 @@ fn watch_plugins(plugins: Arc<PluginsProvider>) {
 
 fn install_signal_handler() {
     extern "C" fn on_signal(_: libc::c_int) {
-        crate::ipc::cleanup();
+        omarchycastd::ipc::cleanup();
         std::process::exit(0);
     }
     // SAFETY: `signal` with a plain extern "C" handler; the handler only calls

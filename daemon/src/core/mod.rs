@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// One row in the result list. `id` is namespaced by provider (`"apps:firefox.desktop"`)
 /// so activation can be routed back without a second lookup table.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
     pub id: String,
