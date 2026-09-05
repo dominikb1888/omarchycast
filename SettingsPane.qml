@@ -420,7 +420,7 @@ Flickable {
       onUpdated: pane.commit("providers", "pluginsLimit", value)
     }
     Toggle {
-      label: "Web Search"; hint: "Fallback: open DuckDuckGo in your browser"
+      label: "Web Search"; hint: "Fallback: open a search engine in your browser"
       checked: host.config.providers.websearch
       onToggled: pane.commit("providers", "websearch", value)
     }
@@ -428,6 +428,21 @@ Flickable {
       label: "Web search results"; value: host.config.providers.websearchLimit
       minimum: 1; maximum: 40
       onUpdated: pane.commit("providers", "websearchLimit", value)
+    }
+    PathField {
+      label: "Search URL"
+      placeholder: "https://duckduckgo.com/?q={query}"
+      value: host.config.providers.websearchUrl
+      onUpdated: pane.commit("providers", "websearchUrl", value)
+    }
+    Text {
+      width: parent.width
+      wrapMode: Text.WordWrap
+      text: "Must contain {query} as a placeholder. Example: https://www.google.com/search?q={query}"
+      color: pane.fg
+      opacity: 0.4
+      font.family: pane.fontFamily
+      font.pixelSize: pane.fs(Style.font.caption)
     }
     PathField {
       label: "Notes folder"

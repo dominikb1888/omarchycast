@@ -46,6 +46,7 @@ struct State {
     registry: Registry,
     config: RwLock<Config>,
     notes: Arc<NotesProvider>,
+    websearch: Arc<WebsearchProvider>,
 }
 
 fn main() {
@@ -99,6 +100,8 @@ fn run() {
     let apps = AppsProvider::new(store.clone());
     let notes = NotesProvider::new(config.notes_directory());
     let plugins = PluginsProvider::new();
+    let websearch = WebsearchProvider::new();
+    websearch.set_url(config.providers.websearch_url.clone());
     let state = Arc::new(State {
         registry: Registry::new(vec![
             CalcProvider::new(),
@@ -107,10 +110,11 @@ fn run() {
             apps.clone(),
             plugins.clone(),
             OmarchyProvider::new(),
-            WebsearchProvider::new(),
+            websearch.clone(),
         ]),
         config: RwLock::new(config),
         notes: notes.clone(),
+        websearch: websearch.clone(),
     });
 
     watch_desktop_files(apps);
@@ -182,6 +186,8 @@ fn dispatch(state: &State, request: Request) -> Response {
             }
             // A moved notes directory has to be re-indexed before the next query.
             state.notes.set_directory(config.notes_directory());
+            // A changed search URL takes effect immediately.
+            state.websearch.set_url(config.providers.websearch_url.clone());
             if rebind {
                 if let Err(e) = hypr::install_hotkey(&config.hotkey) {
                     return Response::error(format!("settings saved, but the hotkey failed: {e}"));

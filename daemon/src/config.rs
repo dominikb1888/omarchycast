@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_HOTKEY: &str = "CTRL + SPACE";
+pub const DEFAULT_SEARCH_URL: &str = "https://duckduckgo.com/?q={query}";
 
 fn config_path() -> PathBuf {
     dirs::config_dir()
@@ -33,6 +34,9 @@ pub struct Providers {
     pub websearch_limit: usize,
     /// Where markdown notes live. Empty means the default, `~/Notes`.
     pub notes_directory: String,
+    /// Search engine URL template. Must contain the literal `{query}` placeholder
+    /// which is replaced with the percent-encoded search term at activation time.
+    pub websearch_url: String,
 }
 
 impl Default for Providers {
@@ -51,6 +55,7 @@ impl Default for Providers {
             omarchy_limit: 8,
             websearch_limit: 1,
             notes_directory: String::new(),
+            websearch_url: DEFAULT_SEARCH_URL.to_string(),
         }
     }
 }
@@ -165,6 +170,9 @@ impl Config {
         if self.providers.notes_directory.chars().count() > MAX_PATH_SETTING_CHARS {
             self.providers.notes_directory = String::new();
         }
+        if !valid_search_url(&self.providers.websearch_url) {
+            self.providers.websearch_url = DEFAULT_SEARCH_URL.to_string();
+        }
         self.appearance.width = self.appearance.width.clamp(320, 1600);
         self.appearance.rows_visible = self.appearance.rows_visible.clamp(3, 20);
         self.appearance.corner_radius = self.appearance.corner_radius.min(48);
@@ -195,6 +203,15 @@ impl Config {
             _ => 4,
         }
     }
+}
+
+/// A valid search URL must be http(s), contain the `{query}` placeholder, and
+/// be a reasonable length.
+fn valid_search_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    trimmed.starts_with("http://") || trimmed.starts_with("https://")
+        && trimmed.contains("{query}")
+        && trimmed.chars().count() <= 512
 }
 
 /// Expands a leading `~` so the setting can be typed the way people write paths.
@@ -229,5 +246,21 @@ mod tests {
         assert_eq!(c.appearance.width, 320);
         assert_eq!(c.appearance.rows_visible, 20);
         assert_eq!(c.appearance.corner_radius, 48);
+    }
+
+    #[test]
+    fn sanitise_resets_invalid_search_url() {
+        let mut c = Config::default();
+        c.providers.websearch_url = "not a url".into();
+        c.sanitise();
+        assert_eq!(c.providers.websearch_url, DEFAULT_SEARCH_URL);
+
+        c.providers.websearch_url = "https://example.com/search".into();
+        c.sanitise();
+        assert_eq!(c.providers.websearch_url, DEFAULT_SEARCH_URL);
+
+        c.providers.websearch_url = "https://example.com/search?q={query}".into();
+        c.sanitise();
+        assert_eq!(c.providers.websearch_url, "https://example.com/search?q={query}");
     }
 }
