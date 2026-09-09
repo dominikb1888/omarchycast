@@ -555,7 +555,10 @@ Item {
       id: card
       anchors.centerIn: parent
       width: root.cardWidth
-      height: Math.min(parent.height - Style.gapsOut * 2, root.headerHeight + contentHeight + root.footerHeight)
+        // The Column below is header + 1px + content + 1px + footer; the two
+        // separator lines must be counted here or the card is 2px too short,
+        // the Column overflows, and the rows paint on top of the footer.
+      height: Math.min(parent.height - Style.gapsOut * 2, root.headerHeight + contentHeight + root.footerHeight + 2)
       radius: root.config.appearance.cornerRadius
       color: root.background
       border.color: root.borderColor

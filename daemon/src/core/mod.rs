@@ -134,45 +134,81 @@ impl Registry {
         let q = Query::new(raw);
         let query_lower = q.trimmed.to_lowercase();
         let mut items: Vec<Item> = Vec::new();
+        // True once some provider returns a result the beginning of the query
+        // actually prefixes (or a pinned computed row). While it stays false
+        // nothing real matched, so the web-search fallback is promoted to the
+        // default row rather than sitting last.
+        let mut has_strong = false;
 
         for provider in &self.providers {
             if !config.provider_enabled(provider.id()) {
                 continue;
-            }
-            // Cap each provider before merging, so one source with hundreds of
-            // weak matches can't crowd the others out of the visible rows.
+             }
+             // Cap each provider before merging, so one source with hundreds of
+             // weak matches can't crowd the others out of the visible rows.
             let mut produced = provider.query(&q);
             produced.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
             produced.truncate(config.provider_limit(provider.id()));
-            // Two ordering corrections the raw fuzzy score cannot see. A title
-            // the query is a prefix of should edge out a scattered match, and at
-            // equal relevance a launchable application should sit above the rows
-            // that merely mention the same name (install/remove menu entries).
-            // Pinned rows (calculator, dates) stay above all of this.
+             // Two ordering corrections the raw fuzzy score cannot see. A title
+             // the query is a prefix of should edge out a scattered match, and at
+             // equal relevance a launchable application should sit above the rows
+             // that merely mention the same name (install/remove menu entries).
+             // Pinned rows (calculator, dates) stay above all of this.
             let priority: i64 = match provider.id() {
-                "apps" => 400,
-                "note" => 200,
-                "plug" => 100,
-                _ => 0,
-            };
+                 "apps" => 400,
+                 "note" => 200,
+                 "plug" => 100,
+                 _ => 0,
+             };
+            // The web provider is the fallback, so it is excluded from the strong
+            // test: scoring it would let a single-word query word-match its own
+            // "Search web for: <query>" title and defeat the promotion below.
+            let scored = provider.id() != "web";
             for item in &mut produced {
-                if item.score < 500_000 {
-                    item.score += score::query_bonus(&query_lower, &item.title) + priority;
-                }
-                // Bound every field on the way out. Providers index files the
-                // user does not control line by line, so the boundary treats
-                // their output as data, not as trusted strings.
+                if scored {
+                    if item.score < 500_000 {
+                        let bonus = score::query_bonus(&query_lower, &item.title) + priority;
+                        item.score += bonus;
+                        if bonus >= 3_000 {
+                            has_strong = true;
+                         }
+                     } else {
+                        has_strong = true;
+                     }
+                  }
+                   // Bound every field on the way out. Providers index files the
+                   // user does not control line by line, so the boundary treats
+                   // their output as data, not as trusted strings.
                 item.clamp();
-            }
+             }
             items.append(&mut produced);
-        }
+         }
 
-        // Descending score, with the title as a stable tie-break so equal-scoring
-        // results don't shuffle between keystrokes.
+         // Descending score, with the title as a stable tie-break so equal-scoring
+         // results don't shuffle between keystrokes.
         items.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.title.cmp(&b.title)));
+
+         // Nothing the providers considered worth a real match (no pinned
+         // calculator or date row, no title the query is a prefix of) means the
+         // query was really a free-text question, so the web-search row is
+         // promoted above the stray fuzzy hits it would otherwise sit under.
+        if !has_strong {
+            let mut web = Vec::new();
+            let mut rest = Vec::new();
+            for item in items.drain(..) {
+                if item.provider == "web" {
+                    web.push(item);
+                 } else {
+                    rest.push(item);
+                 }
+             }
+            web.extend(rest);
+            items = web;
+         }
+
         items.truncate(total);
         items
-    }
+     }
 
     pub fn activate(&self, id: &str, action: Action) -> anyhow::Result<()> {
         let (provider_id, rest) = id
@@ -207,10 +243,101 @@ mod tests {
         assert!(item.id.len() <= crate::limits::MAX_ITEM_ID_BYTES);
     }
 
-    #[test]
-    fn clamp_strips_control_sequences_from_titles() {
-        let mut item = Item::new("apps", "Application", "id".into(), "evil\u{1b}[2Jtitle".into());
-        item.clamp();
-        assert_eq!(item.title, "evil[2Jtitle");
-    }
-}
+ #[test]
+     fn clamp_strips_control_sequences_from_titles() {
+         let mut item = Item::new("apps", "Application", "id".into(), "evil\u{1b}[2Jtitle".into());
+         item.clamp();
+         assert_eq!(item.title, "evil[2Jtitle");
+      }
+
+     /// A provider that always answers with one weak, unranked row. It is "weak"
+     /// because its score is below the pinned band and its title shares no prefix
+     /// with the query, which is what leaves `has_strong` false.
+     struct WeakProvider {
+         id: &'static str,
+         title: &'static str,
+      }
+
+     impl Provider for WeakProvider {
+         fn id(&self) -> &'static str {
+             self.id
+           }
+
+         fn query(&self, q: &Query) -> Vec<Item> {
+             if q.is_empty() {
+                 return Vec::new();
+               }
+             vec![Item::new(self.id, "Generic", "x".into(), self.title.to_string())]
+           }
+
+         fn activate(&self, _: &str, _: Action) -> anyhow::Result<()> {
+             Ok(())
+           }
+       }
+
+      #[test]
+     fn web_search_is_promoted_when_nothing_else_matches() {
+         use crate::providers::websearch::WebsearchProvider;
+         let web = WebsearchProvider::new();
+         let registry = Registry::new(vec![web, Arc::new(WeakProvider { id: "fake", title: "Alpha unrelated" })]);
+         let items = registry.query("quantic", &Config::default(), 10);
+
+          // With no strong app/note/omarchy hit and no calc or date row, the web
+          // row is the top of the list rather than the last item. "Alpha" sorts
+          // before "Search web for: quantic", so without promotion it would sit
+          // on top; the test only passes if promotion ran.
+         assert!(!items.is_empty());
+         assert_eq!(items[0].provider, "web");
+       }
+
+      #[test]
+     fn web_search_sits_last_behind_a_pinned_row() {
+          // A pinned calculator-style score is a strong match, so the web row must
+          // stay beneath it.
+         use crate::providers::websearch::WebsearchProvider;
+         let web = WebsearchProvider::new();
+         let registry = Registry::new(vec![
+             Arc::new(StrongProvider),
+             web,
+          ]);
+         let items = registry.query("quantic", &Config::default(), 10);
+
+         assert_eq!(items[0].provider, "pin");
+         let web_index = items.iter().position(|i| i.provider == "web").expect("web present");
+         assert!(web_index > 0, "web must not top the list behind a strong row");
+      }
+
+      /// A provider that always answers with one pinned row.
+     struct StrongProvider;
+
+     impl Provider for StrongProvider {
+         fn id(&self) -> &'static str {
+             "pin"
+          }
+
+         fn query(&self, q: &Query) -> Vec<Item> {
+             if q.is_empty() {
+                 return Vec::new();
+              }
+             let mut item = Item::new("pin", "Pinned", "answer".into(), "42".into());
+             item.score = 1_000_000;
+             vec![item]
+            }
+
+         fn activate(&self, _: &str, _: Action) -> anyhow::Result<()> {
+             Ok(())
+            }
+        }
+
+      #[test]
+     fn disabled_web_search_is_absent() {
+         use crate::providers::websearch::WebsearchProvider;
+         let web = WebsearchProvider::new();
+         let registry = Registry::new(vec![web, Arc::new(WeakProvider { id: "fake", title: "Unrelated Thing" })]);
+         let mut config = Config::default();
+         config.providers.websearch = false;
+
+         let items = registry.query("quantic", &config, 10);
+         assert!(items.iter().all(|i| i.provider != "web"));
+      }
+ }
