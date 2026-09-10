@@ -555,19 +555,27 @@ Item {
       id: card
       anchors.centerIn: parent
       width: root.cardWidth
-        // The Column below is header + 1px + content + 1px + footer; the two
-        // separator lines must be counted here or the card is 2px too short,
-        // the Column overflows, and the rows paint on top of the footer.
-      height: Math.min(parent.height - Style.gapsOut * 2, root.headerHeight + contentHeight + root.footerHeight + 2)
+       // The Column is header + 1px + content + 1px + footer; the card must be
+       // at least that tall or the fixed-height footer sits below the clip.
+      height: Math.min(cardCap, root.headerHeight + contentHeight + root.footerHeight + separators)
       radius: root.config.appearance.cornerRadius
       color: root.background
       border.color: root.borderColor
       border.width: 1
       clip: true
 
+      // The two 1px separators between the Column's items cost 2px of the
+      // card, so a content tall enough to fill a short screen must give back
+      // that room or the fixed footer is pushed past the clip and the
+      // scrolling results paint on top of it.
+      readonly property int separators: 2
+      readonly property int cardCap: parent.height - Style.gapsOut * 2
+       // Most content may take before header, both separators, and footer leave
+       // the card at cap height; floored at a row so a tiny screen still shows one.
+      readonly property int contentMax: Math.max(root.rowHeight, cardCap - root.headerHeight - root.footerHeight - separators)
       readonly property int contentHeight: root.settingsOpen
-        ? Math.min(Style.space(430), settingsPane.contentHeight)
-        : Math.max(root.rowHeight, Math.min(root.results.length, root.config.appearance.rowsVisible) * root.rowHeight + Style.space(12))
+          ? Math.min(Style.space(430), settingsPane.contentHeight, contentMax)
+          : Math.min(Math.max(root.rowHeight, Math.min(root.results.length, root.config.appearance.rowsVisible) * root.rowHeight + Style.space(12)), contentMax)
 
       // Swallow clicks so they don't fall through to the dismissing scrim.
       MouseArea { anchors.fill: parent; onClicked: {} }
