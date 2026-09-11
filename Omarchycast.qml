@@ -74,6 +74,26 @@ Item {
     root.fs(Style.font.title) + root.dense(Style.spacing.controlPaddingY * 2, Style.space(10)))
   readonly property int footerHeight: root.dense(Style.space(38), Style.space(30))
 
+  // Single source of truth for the card geometry (fix/card-geometry-desync).
+  // The old layout sized the content slot from `card.contentHeight`, a
+  // property read back out of the card subtree, and that binding went stale:
+  // the slot kept ~1 row of height while the card grew to full size, gluing
+  // the footer after row 1 with rows 2..N painting below/over it. These are
+  // computed ONCE here on root — which both the card and the content slot
+  // read — so the two can no longer disagree with each other.
+  readonly property int separators: 2
+  readonly property int cardCap: panel.height - Style.gapsOut * 2
+  // Most the content may take before header, both separators and footer leave
+  // the card at cap height; floored at a row so a tiny screen still shows one.
+  readonly property int contentMax: Math.max(root.rowHeight,
+    root.cardCap - root.headerHeight - root.footerHeight - root.separators)
+  readonly property int resultsContentH: Math.max(root.rowHeight,
+    Math.min(root.results.length, root.config.appearance.rowsVisible) * root.rowHeight + Style.space(12))
+  readonly property int settingsContentH: Math.min(Style.space(430), settingsPane.contentHeight)
+  readonly property int contentH: root.settingsOpen
+    ? Math.min(root.settingsContentH, root.contentMax)
+    : Math.min(root.resultsContentH, root.contentMax)
+
   // ---------------------------------------------------------------- lifecycle
 
   // A keyboard-summoned launcher belongs on the output the user is looking at,
@@ -555,27 +575,17 @@ Item {
       id: card
       anchors.centerIn: parent
       width: root.cardWidth
-       // The Column is header + 1px + content + 1px + footer; the card must be
-       // at least that tall or the fixed-height footer sits below the clip.
-      height: Math.min(cardCap, root.headerHeight + contentHeight + root.footerHeight + separators)
+      // Bottom-up: the Column below always stacks exactly header + 1px +
+      // content + 1px + footer, and the card hugs its implicit height (capped
+      // at cardCap for short screens). Neither the card nor the content slot
+      // reads a card-owned height back, so the slot and the card cannot
+      // desync into footer-after-row-1 again.
+      height: Math.min(root.cardCap, body.implicitHeight)
       radius: root.config.appearance.cornerRadius
       color: root.background
       border.color: root.borderColor
       border.width: 1
       clip: true
-
-      // The two 1px separators between the Column's items cost 2px of the
-      // card, so a content tall enough to fill a short screen must give back
-      // that room or the fixed footer is pushed past the clip and the
-      // scrolling results paint on top of it.
-      readonly property int separators: 2
-      readonly property int cardCap: parent.height - Style.gapsOut * 2
-       // Most content may take before header, both separators, and footer leave
-       // the card at cap height; floored at a row so a tiny screen still shows one.
-      readonly property int contentMax: Math.max(root.rowHeight, cardCap - root.headerHeight - root.footerHeight - separators)
-      readonly property int contentHeight: root.settingsOpen
-          ? Math.min(Style.space(430), settingsPane.contentHeight, contentMax)
-          : Math.min(Math.max(root.rowHeight, Math.min(root.results.length, root.config.appearance.rowsVisible) * root.rowHeight + Style.space(12)), contentMax)
 
       // Swallow clicks so they don't fall through to the dismissing scrim.
       MouseArea { anchors.fill: parent; onClicked: {} }
@@ -588,7 +598,9 @@ Item {
       }
 
       Column {
+        id: body
         anchors.fill: parent
+        clip: true
 
         // ------------------------------------------------------------- header
         Item {
@@ -679,7 +691,8 @@ Item {
         // ------------------------------------------------------------ content
         Item {
           width: parent.width
-          height: card.contentHeight
+          height: root.contentH
+          clip: true
 
           ListView {
             id: resultList

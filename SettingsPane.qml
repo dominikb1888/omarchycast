@@ -471,7 +471,11 @@ Flickable {
         width: parent.width
         height: Style.space(72)
 
-        property int index: modelData ? modelData.index : index
+        // The Repeater already provides `index` for every delegate; redeclaring
+        // it as a property shadows the context value with a self-reading
+        // binding, and a JS-array model has no `modelData.index` anyway
+        // (hence "Unable to assign [undefined] to int").
+        property int entryIndex: index
         property string prefix: modelData ? modelData.prefix : ""
         property string name: modelData ? modelData.name : ""
         property string url: modelData ? modelData.url : ""
@@ -513,7 +517,7 @@ Flickable {
               selectByMouse: true
               onEditingFinished: {
                 var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
-                list[index].prefix = text.trim().toLowerCase()
+                list[entryIndex].prefix = text.trim().toLowerCase()
                 pane.commitPrefixes(list)
               }
             }
@@ -557,7 +561,7 @@ Flickable {
               selectByMouse: true
               onEditingFinished: {
                 var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
-                list[index].name = text.trim()
+                list[entryIndex].name = text.trim()
                 pane.commitPrefixes(list)
               }
             }
@@ -566,6 +570,10 @@ Flickable {
 
         // URL field
         Row {
+          // Fixed width: the URL box below sizes itself from `parent.width`,
+          // and an implicit-width Row sized from its children would feed back
+          // into itself (QQuickItem::polish() loop that starves binding updates).
+          width: parent.width
           anchors.left: parent.left
           anchors.top: parent.top
           anchors.topMargin: Style.space(56)
@@ -601,7 +609,7 @@ Flickable {
               clip: true
               onEditingFinished: {
                 var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
-                list[index].url = text.trim()
+                list[entryIndex].url = text.trim()
                 pane.commitPrefixes(list)
               }
             }
@@ -616,7 +624,7 @@ Flickable {
           anchors.topMargin: Style.space(4)
           onActivated: {
             var list = JSON.parse(JSON.stringify(host.config.providers.websearchPrefixes))
-            list.splice(index, 1)
+            list.splice(entryIndex, 1)
             pane.commitPrefixes(list)
           }
         }
